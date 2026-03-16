@@ -1,6 +1,5 @@
 package com.xhs.util;
 
-import cn.hutool.core.util.StrUtil;
 import cn.hutool.http.HttpRequest;
 import cn.hutool.http.HttpResponse;
 import cn.hutool.json.JSONObject;
@@ -64,92 +63,157 @@ public class FeishuBitableUtil {
     }
 
     /**
-     * 按多个字段条件查询记录，返回第一条记录的 record_id
+     * 搜索记录，返回所有匹配的 record_id 映射（指定字段值 → record_id）
+     * 用于批量匹配：传入日期条件，返回该日期下所有记录的 {计划ID: record_id}
      */
-    public static String searchRecordId(String appToken, String tableId,
-                                        Map<String, String> conditions, String tenantAccessToken) {
-        String url = FeishuUtil.buildApiUrl(
-                String.format("/bitable/v1/apps/%s/tables/%s/records/search", appToken, tableId));
+    public static Map<String, String> searchRecords(String appToken, String tableId,
+                                                     String filterFieldName, String filterFieldValue,
+                                                     String keyFieldName,
+                                                     String tenantAccessToken) {
+        Map<String, String> result = new HashMap<>();
+        String pageToken = null;
 
-        Map<String, Object> body = new HashMap<>();
-        Map<String, Object> filter = new HashMap<>();
-        filter.put("conjunction", "and");
+        do {
+            String url = FeishuUtil.buildApiUrl(
+                    String.format("/bitable/v1/apps/%s/tables/%s/records/search", appToken, tableId));
 
-        List<Map<String, Object>> condList = new ArrayList<>();
-        for (Map.Entry<String, String> entry : conditions.entrySet()) {
+            Map<String, Object> body = new HashMap<>();
+            Map<String, Object> filter = new HashMap<>();
+            filter.put("conjunction", "and");
+
             Map<String, Object> cond = new HashMap<>();
-            cond.put("field_name", entry.getKey());
+            cond.put("field_name", filterFieldName);
             cond.put("operator", "is");
-            cond.put("value", List.of(entry.getValue()));
-            condList.add(cond);
-        }
+            cond.put("value", List.of(filterFieldValue));
+            filter.put("conditions", List.of(cond));
 
-        filter.put("conditions", condList);
-        body.put("filter", filter);
-        body.put("page_size", 1);
-
-        try {
-            JSONObject resp = FeishuUtil.post(url, tenantAccessToken, body);
-            JSONObject data = resp.getJSONObject("data");
-            if (data == null || data.getJSONArray("items") == null) {
-                return null;
+            body.put("filter", filter);
+            body.put("page_size", 500);
+            if (pageToken != null) {
+                body.put("page_token", pageToken);
             }
-            List<JSONObject> items = data.getJSONArray("items").toList(JSONObject.class);
-            return items.isEmpty() ? null : items.get(0).getStr("record_id");
-        } catch (Exception e) {
-            log.error("查询多维表格记录失败", e);
-            return null;
-        }
+
+            try {
+                JSONObject resp = FeishuUtil.post(url, tenantAccessToken, body);
+                JSONObject data = resp.getJSONObject("data");
+                if (data == null) break;
+
+                if (data.getJSONArray("items") != null) {
+                    for (Object item : data.getJSONArray("items")) {
+                        JSONObject record = (JSONObject) item;
+                        String recordId = record.getStr("record_id");
+                        JSONObject fields = record.getJSONObject("fields");
+                        if (fields != null) {
+                            // keyFieldName 的值可能是数字或文本
+                            Object keyVal = fields.get(keyFieldName);
+                            if (keyVal != null) {
+                                result.put(String.valueOf(keyVal), recordId);
+                            }
+                        }
+                    }
+                }
+
+                boolean hasMore = data.getBool("has_more", false);
+                pageToken = hasMore ? data.getStr("page_token") : null;
+            } catch (Exception e) {
+                log.error("搜索多维表格记录失败", e);
+                break;
+            }
+        } while (pageToken != null);
+
+        log.info("搜索到 {} 条已有记录 ({}={})", result.size(), filterFieldName, filterFieldValue);
+        return result;
     }
 
     /**
-     * 创建多维表格记录
+     * 批量创建记录（飞书限制每次最多 500 条）
      */
-    public static String createRecord(String appToken, String tableId,
-                                      Map<String, Object> fields, String tenantAccessToken) {
-        String url = FeishuUtil.buildApiUrl(
-                String.format("/bitable/v1/apps/%s/tables/%s/records", appToken, tableId));
-
-        Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("fields", convertFields(fields));
-
-        try {
-            JSONObject resp = FeishuUtil.post(url, tenantAccessToken, requestBody);
-            JSONObject data = resp.getJSONObject("data");
-            if (data != null && data.getJSONObject("record") != null) {
-                String recordId = data.getJSONObject("record").getStr("record_id");
-                log.info("创建多维表格记录成功: recordId={}", recordId);
-                return recordId;
-            }
-            return null;
-        } catch (Exception e) {
-            log.error("创建多维表格记录失败", e);
-            return null;
+    public static int batchCreateRecords(String appToken, String tableId,
+                                          List<Map<String, Object>> recordsList,
+                                          String tenantAccessToken) {
+        if (recordsList == null || recordsList.isEmpty()) {
+            return 0;
         }
+
+        String url = FeishuUtil.buildApiUrl(
+                String.format("/bitable/v1/apps/%s/tables/%s/records/batch_create", appToken, tableId));
+
+        int created = 0;
+        // 每批最多 500 条
+        for (int i = 0; i < recordsList.size(); i += 500) {
+            List<Map<String, Object>> batch = recordsList.subList(i, Math.min(i + 500, recordsList.size()));
+
+            List<Map<String, Object>> records = new ArrayList<>();
+            for (Map<String, Object> fields : batch) {
+                Map<String, Object> record = new HashMap<>();
+                record.put("fields", convertFields(fields));
+                records.add(record);
+            }
+
+            Map<String, Object> body = new HashMap<>();
+            body.put("records", records);
+
+            try {
+                JSONObject resp = FeishuUtil.post(url, tenantAccessToken, body);
+                JSONObject data = resp.getJSONObject("data");
+                if (data != null && data.getJSONArray("records") != null) {
+                    created += data.getJSONArray("records").size();
+                }
+                log.info("批量创建成功: 本批 {} 条", batch.size());
+            } catch (Exception e) {
+                log.error("批量创建记录失败, 本批 {} 条", batch.size(), e);
+            }
+        }
+
+        return created;
     }
 
     /**
-     * 更新多维表格记录
+     * 批量更新记录（飞书限制每次最多 500 条）
+     * recordsList 中每个 map 必须包含 "record_id" 键
      */
-    public static boolean updateRecord(String appToken, String tableId, String recordId,
-                                       Map<String, Object> fields, String tenantAccessToken) {
-        String url = FeishuUtil.buildApiUrl(
-                String.format("/bitable/v1/apps/%s/tables/%s/records/%s", appToken, tableId, recordId));
-
-        Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("fields", convertFields(fields));
-
-        try {
-            FeishuUtil.put(url, tenantAccessToken, requestBody);
-            log.info("更新多维表格记录成功: recordId={}", recordId);
-            return true;
-        } catch (Exception e) {
-            log.error("更新多维表格记录失败: recordId={}", recordId, e);
-            return false;
+    public static int batchUpdateRecords(String appToken, String tableId,
+                                          List<Map<String, Object>> recordsList,
+                                          String tenantAccessToken) {
+        if (recordsList == null || recordsList.isEmpty()) {
+            return 0;
         }
+
+        String url = FeishuUtil.buildApiUrl(
+                String.format("/bitable/v1/apps/%s/tables/%s/records/batch_update", appToken, tableId));
+
+        int updated = 0;
+        for (int i = 0; i < recordsList.size(); i += 500) {
+            List<Map<String, Object>> batch = recordsList.subList(i, Math.min(i + 500, recordsList.size()));
+
+            List<Map<String, Object>> records = new ArrayList<>();
+            for (Map<String, Object> item : batch) {
+                String recordId = (String) item.get("record_id");
+                Map<String, Object> fields = new HashMap<>(item);
+                fields.remove("record_id");
+
+                Map<String, Object> record = new HashMap<>();
+                record.put("record_id", recordId);
+                record.put("fields", convertFields(fields));
+                records.add(record);
+            }
+
+            Map<String, Object> body = new HashMap<>();
+            body.put("records", records);
+
+            try {
+                FeishuUtil.post(url, tenantAccessToken, body);
+                updated += batch.size();
+                log.info("批量更新成功: 本批 {} 条", batch.size());
+            } catch (Exception e) {
+                log.error("批量更新记录失败, 本批 {} 条", batch.size(), e);
+            }
+        }
+
+        return updated;
     }
 
-    private static Map<String, Object> convertFields(Map<String, Object> fields) {
+    static Map<String, Object> convertFields(Map<String, Object> fields) {
         Map<String, Object> result = new HashMap<>();
         for (Map.Entry<String, Object> entry : fields.entrySet()) {
             Object value = entry.getValue();

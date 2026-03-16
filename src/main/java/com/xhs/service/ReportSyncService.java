@@ -3,6 +3,7 @@ package com.xhs.service;
 import com.xhs.config.FeishuConfig;
 import com.xhs.config.XhsConfig;
 import com.xhs.model.DateValue;
+import com.xhs.model.TokenInfo;
 import com.xhs.util.FeishuBitableUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,9 +13,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.*;
 
 @Slf4j
 @Service
@@ -29,65 +28,75 @@ public class ReportSyncService {
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter FEISHU_DATE_FMT = DateTimeFormatter.ofPattern("yyyy/MM/dd");
 
-    /**
-     * XHS API 字段 → 飞书表格字段名 映射
-     */
-    private static final Map<String, String> FIELD_MAPPING = new LinkedHashMap<>();
+    /** XHS API 字段 → 飞书表格字段名 */
+    private static final Map<String, String> METRIC_MAPPING = new LinkedHashMap<>();
     static {
-        FIELD_MAPPING.put("fee", "消费");
-        FIELD_MAPPING.put("impression", "展现量");
-        FIELD_MAPPING.put("click", "点击量");
-        FIELD_MAPPING.put("ctr", "点击率");
-        FIELD_MAPPING.put("acp", "平均点击成本");
-        FIELD_MAPPING.put("cpm", "平均千次展示费用");
-        FIELD_MAPPING.put("interaction", "互动量");
-        FIELD_MAPPING.put("cpi", "平均互动成本");
-        FIELD_MAPPING.put("message_consult", "私信进线数");
-        FIELD_MAPPING.put("initiative_message", "私信开口数");
-        FIELD_MAPPING.put("msg_leads_num", "私信留资数");
-        FIELD_MAPPING.put("message_consult_cpl", "私信进线成本");
-        FIELD_MAPPING.put("initiative_message_cpl", "私信开口成本");
-        FIELD_MAPPING.put("msg_leads_cost", "私信留资成本");
+        METRIC_MAPPING.put("fee", "消费");
+        METRIC_MAPPING.put("impression", "展现量");
+        METRIC_MAPPING.put("click", "点击量");
+        METRIC_MAPPING.put("ctr", "点击率");
+        METRIC_MAPPING.put("acp", "平均点击成本");
+        METRIC_MAPPING.put("cpm", "平均千次展示费用");
+        METRIC_MAPPING.put("interaction", "互动量");
+        METRIC_MAPPING.put("cpi", "平均互动成本");
+        METRIC_MAPPING.put("message_consult", "私信进线数");
+        METRIC_MAPPING.put("initiative_message", "私信开口数");
+        METRIC_MAPPING.put("msg_leads_num", "私信留资数");
+        METRIC_MAPPING.put("message_consult_cpl", "私信进线成本");
+        METRIC_MAPPING.put("initiative_message_cpl", "私信开口成本");
+        METRIC_MAPPING.put("msg_leads_cost", "私信留资成本");
     }
 
     /**
-     * 每 2 小时执行一次，同步所有账号当天的报表数据到飞书
+     * 每 2 小时执行一次
      */
     @Scheduled(fixedRate = 2 * 60 * 60 * 1000, initialDelay = 10 * 1000)
     public void syncAllAccounts() {
-        log.info("===== 开始同步报表数据到飞书 =====");
-        String today = LocalDate.now().format(DATE_FMT);
+        log.info("===== 开始同步计划报表数据到飞书 =====");
+        String today = LocalDate.now(ZoneId.of("Asia/Shanghai")).format(DATE_FMT);
 
         for (XhsConfig.AccountConfig account : xhsConfig.getAccounts()) {
-            // 跳过未配置的账号
             if (account.getAppId() == null || account.getAppId() == 0) {
                 continue;
             }
-            // 跳过未授权的账号
-            if (tokenService.getToken(account.getAppId()) == null) {
+
+            TokenInfo tokenInfo = tokenService.getToken(account.getAppId());
+            if (tokenInfo == null) {
                 log.warn("账号 {} (appId={}) 未授权，跳过", account.getName(), account.getAppId());
                 continue;
             }
 
-            try {
-                syncOneAccount(account, today);
-            } catch (Exception e) {
-                log.error("同步账号 {} 失败", account.getName(), e);
+            List<TokenInfo.Advertiser> advertisers = tokenInfo.getApprovalAdvertisers();
+            if (advertisers == null || advertisers.isEmpty()) {
+                log.warn("账号 {} 无广告主信息，跳过", account.getName());
+                continue;
+            }
+
+            for (TokenInfo.Advertiser advertiser : advertisers) {
+                try {
+                    syncOneAdvertiser(account.getAppId(), advertiser, today);
+                } catch (Exception e) {
+                    log.error("同步广告主 {} (id={}) 失败",
+                            advertiser.getAdvertiserName(), advertiser.getAdvertiserId(), e);
+                }
             }
         }
-        log.info("===== 报表同步完成 =====");
+        log.info("===== 计划报表同步完成 =====");
     }
 
     /**
-     * 同步单个账号的数据
+     * 同步单个广告主下的所有有效计划
      */
-    public void syncOneAccount(XhsConfig.AccountConfig account, String date) throws Exception {
-        log.info("同步账号: {}, 日期: {}", account.getName(), date);
+    public void syncOneAdvertiser(Integer appId, TokenInfo.Advertiser advertiser, String date) throws Exception {
+        String advertiserName = advertiser.getAdvertiserName();
+        Long advertiserId = advertiser.getAdvertiserId();
+        log.info("同步广告主: {} (id={}), 日期: {}", advertiserName, advertiserId, date);
 
-        // 1. 获取 XHS 报表数据
-        Map<String, String> reportData = xhsReportService.fetchTodayReport(account.getAppId(), date);
-        if (reportData.isEmpty()) {
-            log.warn("账号 {} 无报表数据", account.getName());
+        // 1. 获取有效计划数据
+        List<XhsReportService.CampaignReport> campaigns =
+                xhsReportService.fetchActiveCampaigns(appId, advertiserId, date);
+        if (campaigns.isEmpty()) {
+            log.info("广告主 {} 无有效计划数据", advertiserName);
             return;
         }
 
@@ -95,55 +104,88 @@ public class ReportSyncService {
         String tenantToken = FeishuBitableUtil.getTenantAccessToken(
                 feishuConfig.getAppId(), feishuConfig.getAppSecret());
 
-        // 3. 构建飞书字段数据
-        Map<String, Object> fields = new HashMap<>();
-        fields.put("聚光账户名称", account.getName());
-
-        // 日期字段：转为 Unix 时间戳（毫秒）
+        // 3. 查询飞书中该日期已有的记录 (按日期搜索，拿到 {计划ID: record_id} 映射)
         LocalDate localDate = LocalDate.parse(date, DATE_FMT);
+        String feishuDateStr = localDate.format(FEISHU_DATE_FMT);
+
+        Map<String, String> existingRecords = FeishuBitableUtil.searchRecords(
+                feishuConfig.getAppToken(), feishuConfig.getTableId(),
+                "日期", feishuDateStr,
+                "在跑计划ID",
+                tenantToken);
+
+        // 4. 构建日期时间戳
         long dateTimestamp = localDate.atStartOfDay(ZoneId.of("Asia/Shanghai"))
                 .toInstant().toEpochMilli();
-        fields.put("日期", new DateValue(dateTimestamp));
 
-        // 映射报表数据字段
-        for (Map.Entry<String, String> mapping : FIELD_MAPPING.entrySet()) {
-            String xhsField = mapping.getKey();
-            String feishuField = mapping.getValue();
-            String value = reportData.get(xhsField);
+        // 5. 分为待新增和待更新
+        List<Map<String, Object>> toCreate = new ArrayList<>();
+        List<Map<String, Object>> toUpdate = new ArrayList<>();
+
+        for (XhsReportService.CampaignReport campaign : campaigns) {
+            Map<String, Object> fields = buildFields(
+                    advertiserName, campaign, dateTimestamp);
+
+            String campaignIdStr = String.valueOf(campaign.getCampaignId());
+            String recordId = existingRecords.get(campaignIdStr);
+
+            if (recordId != null) {
+                // 已存在，更新（不传账号、日期、计划ID、计划名称）
+                fields.remove("日期");
+                fields.remove("账号");
+                fields.remove("在跑计划ID");
+                fields.remove("在跑计划名称");
+                fields.put("record_id", recordId);
+                toUpdate.add(fields);
+            } else {
+                toCreate.add(fields);
+            }
+        }
+
+        // 6. 批量写入飞书
+        if (!toCreate.isEmpty()) {
+            int created = FeishuBitableUtil.batchCreateRecords(
+                    feishuConfig.getAppToken(), feishuConfig.getTableId(),
+                    toCreate, tenantToken);
+            log.info("广告主 {}: 新增 {} 条计划记录", advertiserName, created);
+        }
+        if (!toUpdate.isEmpty()) {
+            int updated = FeishuBitableUtil.batchUpdateRecords(
+                    feishuConfig.getAppToken(), feishuConfig.getTableId(),
+                    toUpdate, tenantToken);
+            log.info("广告主 {}: 更新 {} 条计划记录", advertiserName, updated);
+        }
+        if (toCreate.isEmpty() && toUpdate.isEmpty()) {
+            log.info("广告主 {}: 无需新增或更新", advertiserName);
+        }
+    }
+
+    /**
+     * 构建一条计划的飞书字段数据
+     */
+    private Map<String, Object> buildFields(String advertiserName,
+                                             XhsReportService.CampaignReport campaign,
+                                             long dateTimestamp) {
+        Map<String, Object> fields = new HashMap<>();
+        fields.put("日期", new DateValue(dateTimestamp));
+        fields.put("账号", advertiserName);
+        fields.put("在跑计划ID", String.valueOf(campaign.getCampaignId()));
+        fields.put("在跑计划名称", campaign.getCampaignName());
+
+        // 映射报表指标
+        Map<String, String> metrics = campaign.getMetrics();
+        for (Map.Entry<String, String> mapping : METRIC_MAPPING.entrySet()) {
+            String value = metrics.get(mapping.getKey());
             if (value != null) {
                 try {
-                    fields.put(feishuField, Double.parseDouble(value));
+                    fields.put(mapping.getValue(), Double.parseDouble(value));
                 } catch (NumberFormatException e) {
-                    fields.put(feishuField, value);
+                    fields.put(mapping.getValue(), value);
                 }
             }
         }
 
-        // 4. 查询是否已存在该账号+日期的记录
-        String feishuDateStr = localDate.format(FEISHU_DATE_FMT);
-        Map<String, String> searchConditions = new HashMap<>();
-        searchConditions.put("聚光账户名称", account.getName());
-        searchConditions.put("日期", feishuDateStr);
-
-        String recordId = FeishuBitableUtil.searchRecordId(
-                feishuConfig.getAppToken(), feishuConfig.getTableId(),
-                searchConditions, tenantToken);
-
-        // 5. 存在则更新，不存在则新增
-        if (recordId != null) {
-            log.info("更新已有记录, 账号={}, 日期={}, recordId={}", account.getName(), date, recordId);
-            // 更新时不需要再传聚光账户名称和日期
-            fields.remove("聚光账户名称");
-            fields.remove("日期");
-            FeishuBitableUtil.updateRecord(
-                    feishuConfig.getAppToken(), feishuConfig.getTableId(),
-                    recordId, fields, tenantToken);
-        } else {
-            log.info("创建新记录, 账号={}, 日期={}", account.getName(), date);
-            FeishuBitableUtil.createRecord(
-                    feishuConfig.getAppToken(), feishuConfig.getTableId(),
-                    fields, tenantToken);
-        }
+        return fields;
     }
 
     /**
@@ -151,19 +193,27 @@ public class ReportSyncService {
      */
     public void manualSync(String date) {
         log.info("手动触发同步, 日期={}", date);
-        String syncDate = date != null ? date : LocalDate.now().format(DATE_FMT);
+        String syncDate = date != null ? date : LocalDate.now(ZoneId.of("Asia/Shanghai")).format(DATE_FMT);
 
         for (XhsConfig.AccountConfig account : xhsConfig.getAccounts()) {
             if (account.getAppId() == null || account.getAppId() == 0) {
                 continue;
             }
-            if (tokenService.getToken(account.getAppId()) == null) {
+
+            TokenInfo tokenInfo = tokenService.getToken(account.getAppId());
+            if (tokenInfo == null) {
                 continue;
             }
-            try {
-                syncOneAccount(account, syncDate);
-            } catch (Exception e) {
-                log.error("手动同步账号 {} 失败", account.getName(), e);
+
+            List<TokenInfo.Advertiser> advertisers = tokenInfo.getApprovalAdvertisers();
+            if (advertisers == null) continue;
+
+            for (TokenInfo.Advertiser advertiser : advertisers) {
+                try {
+                    syncOneAdvertiser(account.getAppId(), advertiser, syncDate);
+                } catch (Exception e) {
+                    log.error("手动同步广告主 {} 失败", advertiser.getAdvertiserName(), e);
+                }
             }
         }
     }
