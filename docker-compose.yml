@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  xhs-data-analysis:
+    build: .
+    container_name: xhs-data-analysis
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./tokens.json:/app/tokens.json
+    restart: unless-stopped
