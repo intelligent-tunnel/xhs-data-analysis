@@ -10,12 +10,16 @@ xhs:
     - app-id: 8064
       secret: uAlW1LHCMvgjwik4
       name: 极客上线
+      advertiser-ids: []
     - app-id: 8070
       secret: IINiMZRz5ddknw7O
       name: GeekOnUp
+      advertiser-ids:
+        - 8678526
     - app-id: 0
       secret: 待填写
       name: 账号3
+      advertiser-ids: []
 
 feishu:
   bitable:

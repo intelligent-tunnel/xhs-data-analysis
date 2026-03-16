@@ -22,6 +22,7 @@ public class XhsConfig {
         private Integer appId;
         private String secret;
         private String name;
+        private List<Long> advertiserIds;
     }
 
     /**

@@ -59,25 +59,22 @@ public class ReportSyncService {
             if (account.getAppId() == null || account.getAppId() == 0) {
                 continue;
             }
-
-            TokenInfo tokenInfo = tokenService.getToken(account.getAppId());
-            if (tokenInfo == null) {
+            if (tokenService.getToken(account.getAppId()) == null) {
                 log.warn("账号 {} (appId={}) 未授权，跳过", account.getName(), account.getAppId());
                 continue;
             }
 
-            List<TokenInfo.Advertiser> advertisers = tokenInfo.getApprovalAdvertisers();
-            if (advertisers == null || advertisers.isEmpty()) {
-                log.warn("账号 {} 无广告主信息，跳过", account.getName());
+            List<Long> advertiserIds = account.getAdvertiserIds();
+            if (advertiserIds == null || advertiserIds.isEmpty()) {
+                log.warn("账号 {} (appId={}) 未配置 advertiser-ids，跳过", account.getName(), account.getAppId());
                 continue;
             }
 
-            for (TokenInfo.Advertiser advertiser : advertisers) {
+            for (Long advertiserId : advertiserIds) {
                 try {
-                    syncOneAdvertiser(account.getAppId(), advertiser, today);
+                    syncOneAdvertiser(account.getAppId(), account.getName(), advertiserId, today);
                 } catch (Exception e) {
-                    log.error("同步广告主 {} (id={}) 失败",
-                            advertiser.getAdvertiserName(), advertiser.getAdvertiserId(), e);
+                    log.error("同步广告主 id={} 失败", advertiserId, e);
                 }
             }
         }
@@ -87,16 +84,14 @@ public class ReportSyncService {
     /**
      * 同步单个广告主下的所有有效计划
      */
-    public void syncOneAdvertiser(Integer appId, TokenInfo.Advertiser advertiser, String date) throws Exception {
-        String advertiserName = advertiser.getAdvertiserName();
-        Long advertiserId = advertiser.getAdvertiserId();
-        log.info("同步广告主: {} (id={}), 日期: {}", advertiserName, advertiserId, date);
+    public void syncOneAdvertiser(Integer appId, String accountName, Long advertiserId, String date) throws Exception {
+        log.info("同步广告主: accountName={}, advertiserId={}, 日期={}", accountName, advertiserId, date);
 
         // 1. 获取有效计划数据
         List<XhsReportService.CampaignReport> campaigns =
                 xhsReportService.fetchActiveCampaigns(appId, advertiserId, date);
         if (campaigns.isEmpty()) {
-            log.info("广告主 {} 无有效计划数据", advertiserName);
+            log.info("广告主 {} 无有效计划数据", advertiserId);
             return;
         }
 
@@ -104,7 +99,7 @@ public class ReportSyncService {
         String tenantToken = FeishuBitableUtil.getTenantAccessToken(
                 feishuConfig.getAppId(), feishuConfig.getAppSecret());
 
-        // 3. 查询飞书中该日期已有的记录 (按日期搜索，拿到 {计划ID: record_id} 映射)
+        // 3. 查询飞书中该日期已有的记录 {计划ID: record_id}
         LocalDate localDate = LocalDate.parse(date, DATE_FMT);
         String feishuDateStr = localDate.format(FEISHU_DATE_FMT);
 
@@ -123,20 +118,21 @@ public class ReportSyncService {
         List<Map<String, Object>> toUpdate = new ArrayList<>();
 
         for (XhsReportService.CampaignReport campaign : campaigns) {
-            Map<String, Object> fields = buildFields(
-                    advertiserName, campaign, dateTimestamp);
+            Map<String, Object> fields = buildFields(accountName, campaign, dateTimestamp);
 
             String campaignIdStr = String.valueOf(campaign.getCampaignId());
             String recordId = existingRecords.get(campaignIdStr);
 
             if (recordId != null) {
-                // 已存在，更新（不传账号、日期、计划ID、计划名称）
-                fields.remove("日期");
-                fields.remove("账号");
-                fields.remove("在跑计划ID");
-                fields.remove("在跑计划名称");
-                fields.put("record_id", recordId);
-                toUpdate.add(fields);
+                // 已存在 → 更新（只更新指标字段）
+                Map<String, Object> updateFields = new HashMap<>();
+                for (String feishuField : METRIC_MAPPING.values()) {
+                    if (fields.containsKey(feishuField)) {
+                        updateFields.put(feishuField, fields.get(feishuField));
+                    }
+                }
+                updateFields.put("record_id", recordId);
+                toUpdate.add(updateFields);
             } else {
                 toCreate.add(fields);
             }
@@ -147,32 +143,28 @@ public class ReportSyncService {
             int created = FeishuBitableUtil.batchCreateRecords(
                     feishuConfig.getAppToken(), feishuConfig.getTableId(),
                     toCreate, tenantToken);
-            log.info("广告主 {}: 新增 {} 条计划记录", advertiserName, created);
+            log.info("广告主 {}: 新增 {} 条计划记录", advertiserId, created);
         }
         if (!toUpdate.isEmpty()) {
             int updated = FeishuBitableUtil.batchUpdateRecords(
                     feishuConfig.getAppToken(), feishuConfig.getTableId(),
                     toUpdate, tenantToken);
-            log.info("广告主 {}: 更新 {} 条计划记录", advertiserName, updated);
+            log.info("广告主 {}: 更新 {} 条计划记录", advertiserId, updated);
         }
         if (toCreate.isEmpty() && toUpdate.isEmpty()) {
-            log.info("广告主 {}: 无需新增或更新", advertiserName);
+            log.info("广告主 {}: 无需新增或更新", advertiserId);
         }
     }
 
-    /**
-     * 构建一条计划的飞书字段数据
-     */
-    private Map<String, Object> buildFields(String advertiserName,
+    private Map<String, Object> buildFields(String accountName,
                                              XhsReportService.CampaignReport campaign,
                                              long dateTimestamp) {
         Map<String, Object> fields = new HashMap<>();
         fields.put("日期", new DateValue(dateTimestamp));
-        fields.put("账号", advertiserName);
+        fields.put("账号", accountName);
         fields.put("在跑计划ID", String.valueOf(campaign.getCampaignId()));
         fields.put("在跑计划名称", campaign.getCampaignName());
 
-        // 映射报表指标
         Map<String, String> metrics = campaign.getMetrics();
         for (Map.Entry<String, String> mapping : METRIC_MAPPING.entrySet()) {
             String value = metrics.get(mapping.getKey());
@@ -199,20 +191,20 @@ public class ReportSyncService {
             if (account.getAppId() == null || account.getAppId() == 0) {
                 continue;
             }
-
-            TokenInfo tokenInfo = tokenService.getToken(account.getAppId());
-            if (tokenInfo == null) {
+            if (tokenService.getToken(account.getAppId()) == null) {
                 continue;
             }
 
-            List<TokenInfo.Advertiser> advertisers = tokenInfo.getApprovalAdvertisers();
-            if (advertisers == null) continue;
+            List<Long> advertiserIds = account.getAdvertiserIds();
+            if (advertiserIds == null || advertiserIds.isEmpty()) {
+                continue;
+            }
 
-            for (TokenInfo.Advertiser advertiser : advertisers) {
+            for (Long advertiserId : advertiserIds) {
                 try {
-                    syncOneAdvertiser(account.getAppId(), advertiser, syncDate);
+                    syncOneAdvertiser(account.getAppId(), account.getName(), advertiserId, syncDate);
                 } catch (Exception e) {
-                    log.error("手动同步广告主 {} 失败", advertiser.getAdvertiserName(), e);
+                    log.error("手动同步广告主 {} 失败", advertiserId, e);
                 }
             }
         }
