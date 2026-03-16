@@ -1,0 +1,18 @@
+server:
+  port: 33344
+
+xhs:
+  redirect-uri: https://zhangle.geekonup.com
+  auth-url: https://ad-market.xiaohongshu.com/auth
+  token-url: https://adapi.xiaohongshu.com/api/open/oauth2/access_token
+  refresh-url: https://adapi.xiaohongshu.com/api/open/oauth2/refresh_token
+  accounts:
+    - app-id: 8005
+      secret: Sxsm8EwMqaRetne8
+      name: 账号1
+    - app-id: 0
+      secret: 待填写
+      name: 账号2
+    - app-id: 0
+      secret: 待填写
+      name: 账号3
