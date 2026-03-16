@@ -95,7 +95,7 @@ public class FeishuBitableUtil {
                 return null;
             }
             List<JSONObject> items = data.getJSONArray("items").toList(JSONObject.class);
-            return items.isEmpty() ? null : items.getFirst().getStr("record_id");
+            return items.isEmpty() ? null : items.get(0).getStr("record_id");
         } catch (Exception e) {
             log.error("查询多维表格记录失败", e);
             return null;
