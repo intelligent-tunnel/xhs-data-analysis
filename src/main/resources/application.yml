@@ -10,9 +10,16 @@ xhs:
     - app-id: 8064
       secret: uAlW1LHCMvgjwik4
       name: 极客上线
-    - app-id: 0
-      secret: 待填写
-      name: 账号2
+    - app-id: 8070
+      secret: IINiMZRz5ddknw7O
+      name: GeekOnUp
     - app-id: 0
       secret: 待填写
       name: 账号3
+
+feishu:
+  bitable:
+    app-id: cli_a93d04a094b85bdf
+    app-secret: u23moIG9VM4SoX5lek5xid8Azxy5Rik0
+    app-token: GvH0wd8DmiaeEOkDfTec5g1enJh
+    table-id: tblNl3cbsjuQ1aGC
