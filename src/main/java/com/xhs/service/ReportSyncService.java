@@ -101,17 +101,16 @@ public class ReportSyncService {
 
         // 3. 查询飞书中该日期已有的记录 {计划ID: record_id}
         LocalDate localDate = LocalDate.parse(date, DATE_FMT);
-        String feishuDateStr = localDate.format(FEISHU_DATE_FMT);
-
-        Map<String, String> existingRecords = FeishuBitableUtil.searchRecords(
-                feishuConfig.getAppToken(), feishuConfig.getTableId(),
-                "日期", feishuDateStr,
-                "在跑计划ID",
-                tenantToken);
 
         // 4. 构建日期时间戳
         long dateTimestamp = localDate.atStartOfDay(ZoneId.of("Asia/Shanghai"))
                 .toInstant().toEpochMilli();
+
+        Map<String, String> existingRecords = FeishuBitableUtil.searchRecords(
+                feishuConfig.getAppToken(), feishuConfig.getTableId(),
+                "日期", String.valueOf(dateTimestamp),
+                "在跑计划ID",
+                tenantToken);
 
         // 5. 分为待新增和待更新
         List<Map<String, Object>> toCreate = new ArrayList<>();
@@ -170,7 +169,8 @@ public class ReportSyncService {
             String value = metrics.get(mapping.getKey());
             if (value != null) {
                 try {
-                    fields.put(mapping.getValue(), Double.parseDouble(value));
+                    String numStr = value.endsWith("%") ? value.substring(0, value.length() - 1) : value;
+                    fields.put(mapping.getValue(), Double.parseDouble(numStr));
                 } catch (NumberFormatException e) {
                     fields.put(mapping.getValue(), value);
                 }
