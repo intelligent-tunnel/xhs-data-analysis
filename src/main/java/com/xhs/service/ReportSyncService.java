@@ -108,7 +108,7 @@ public class ReportSyncService {
 
         Map<String, String> existingRecords = FeishuBitableUtil.searchRecords(
                 feishuConfig.getAppToken(), feishuConfig.getTableId(),
-                "日期", dateTimestamp,
+                "日期", String.valueOf(dateTimestamp),
                 "在跑计划ID",
                 tenantToken);
 

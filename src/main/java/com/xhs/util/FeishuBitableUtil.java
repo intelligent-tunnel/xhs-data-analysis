@@ -67,7 +67,7 @@ public class FeishuBitableUtil {
      * 用于批量匹配：传入日期条件，返回该日期下所有记录的 {计划ID: record_id}
      */
     public static Map<String, String> searchRecords(String appToken, String tableId,
-                                                     String filterFieldName, Object filterFieldValue,
+                                                     String filterFieldName, String filterFieldValue,
                                                      String keyFieldName,
                                                      String tenantAccessToken) {
         Map<String, String> result = new HashMap<>();
@@ -84,7 +84,7 @@ public class FeishuBitableUtil {
             Map<String, Object> cond = new HashMap<>();
             cond.put("field_name", filterFieldName);
             cond.put("operator", "is");
-            cond.put("value", List.of(filterFieldValue));
+            cond.put("value", List.of("ExactDate", filterFieldValue));
             filter.put("conditions", List.of(cond));
 
             body.put("filter", filter);
