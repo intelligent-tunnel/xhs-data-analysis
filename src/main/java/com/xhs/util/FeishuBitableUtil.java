@@ -7,6 +7,8 @@ import cn.hutool.json.JSONUtil;
 import com.xhs.model.DateValue;
 import lombok.extern.slf4j.Slf4j;
 
+import cn.hutool.json.JSONArray;
+
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -104,10 +106,10 @@ public class FeishuBitableUtil {
                         String recordId = record.getStr("record_id");
                         JSONObject fields = record.getJSONObject("fields");
                         if (fields != null) {
-                            // keyFieldName 的值可能是数字或文本
                             Object keyVal = fields.get(keyFieldName);
-                            if (keyVal != null) {
-                                result.put(String.valueOf(keyVal), recordId);
+                            String keyStr = extractFieldText(keyVal);
+                            if (keyStr != null) {
+                                result.put(keyStr, recordId);
                             }
                         }
                     }
@@ -121,7 +123,7 @@ public class FeishuBitableUtil {
             }
         } while (pageToken != null);
 
-        log.info("搜索到 {} 条已有记录 ({}={})", result.size(), filterFieldName, filterFieldValue);
+        log.info("搜索到 {} 条已有记录 ({}={}), keys={}", result.size(), filterFieldName, filterFieldValue, result.keySet());
         return result;
     }
 
@@ -211,6 +213,35 @@ public class FeishuBitableUtil {
         }
 
         return updated;
+    }
+
+    /**
+     * 从飞书返回的字段值中提取文本。
+     * 飞书文本字段返回格式为富文本数组: [{"type":"text","text":"值"}]
+     * 数字字段直接返回数字。
+     */
+    static String extractFieldText(Object fieldValue) {
+        if (fieldValue == null) {
+            return null;
+        }
+        if (fieldValue instanceof JSONArray arr) {
+            // 富文本数组格式: [{"type":"text","text":"176728734"}]
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < arr.size(); i++) {
+                Object elem = arr.get(i);
+                if (elem instanceof JSONObject obj) {
+                    String text = obj.getStr("text");
+                    if (text != null) {
+                        sb.append(text);
+                    }
+                } else {
+                    sb.append(elem);
+                }
+            }
+            return sb.length() > 0 ? sb.toString() : null;
+        }
+        // 数字或其他简单类型
+        return String.valueOf(fieldValue);
     }
 
     static Map<String, Object> convertFields(Map<String, Object> fields) {
