@@ -18,9 +18,9 @@ xhs:
       advertiser-ids:
         - 6905853
         - 8681016
-    - app-id: 8087
-      secret: rc7KH9fJg92hHa2X
-      name: GeekOnUp-软件定制
+    - app-id: 8093
+      secret: OqRXV5LIu8rEWv8s
+      name: 源序科技
       advertiser-ids:
         - 9574874
 
