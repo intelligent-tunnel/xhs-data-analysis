@@ -17,10 +17,12 @@ xhs:
       name: GeekOnUp
       advertiser-ids:
         - 6905853
-    - app-id: 0
-      secret: 待填写
-      name: 账号3
-      advertiser-ids: []
+        - 8681016
+    - app-id: 8087
+      secret: rc7KH9fJg92hHa2X
+      name: GeekOnUp-软件定制
+      advertiser-ids:
+        - 9574874
 
 feishu:
   bitable:
