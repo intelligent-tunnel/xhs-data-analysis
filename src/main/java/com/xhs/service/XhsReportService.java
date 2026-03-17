@@ -63,7 +63,7 @@ public class XhsReportService {
                     throw new IOException("获取计划报表失败 (advertiserId=" + advertiserId + "): " + root.path("msg").asText());
                 }
 
-                JsonNode campaignDtos = root.path("data").path("campaign_dtos");
+                JsonNode campaignDtos = root.path("campaign_dtos");
                 if (campaignDtos.isMissingNode() || !campaignDtos.isArray() || campaignDtos.isEmpty()) {
                     break;
                 }
@@ -76,7 +76,7 @@ public class XhsReportService {
                 }
 
                 // 检查是否还有下一页
-                JsonNode page = root.path("data").path("page");
+                JsonNode page = root.path("page");
                 int totalCount = page.path("total_count").asInt(0);
                 if (pageNum * pageSize >= totalCount) {
                     break;
