@@ -170,7 +170,11 @@ public class ReportSyncService {
             if (value != null) {
                 try {
                     String numStr = value.endsWith("%") ? value.substring(0, value.length() - 1) : value;
-                    fields.put(mapping.getValue(), Double.parseDouble(numStr));
+                    double num = Double.parseDouble(numStr);
+                    if (value.endsWith("%")) {
+                        num = num / 100;
+                    }
+                    fields.put(mapping.getValue(), num);
                 } catch (NumberFormatException e) {
                     fields.put(mapping.getValue(), value);
                 }
