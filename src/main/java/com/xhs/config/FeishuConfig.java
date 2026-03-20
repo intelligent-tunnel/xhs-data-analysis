@@ -13,4 +13,5 @@ public class FeishuConfig {
     private String appSecret;
     private String appToken;
     private String tableId;
+    private String accountTableId;
 }

@@ -220,7 +220,7 @@ public class FeishuBitableUtil {
      * 飞书文本字段返回格式为富文本数组: [{"type":"text","text":"值"}]
      * 数字字段直接返回数字。
      */
-    static String extractFieldText(Object fieldValue) {
+    public static String extractFieldText(Object fieldValue) {
         if (fieldValue == null) {
             return null;
         }
@@ -242,6 +242,10 @@ public class FeishuBitableUtil {
         }
         // 数字或其他简单类型
         return String.valueOf(fieldValue);
+    }
+
+    public static String buildApiUrl(String path) {
+        return FeishuUtil.buildApiUrl(path);
     }
 
     static Map<String, Object> convertFields(Map<String, Object> fields) {
