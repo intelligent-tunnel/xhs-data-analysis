@@ -31,3 +31,11 @@ feishu:
     app-token: GvH0wd8DmiaeEOkDfTec5g1enJh
     table-id: tblbzaVvwMNJhILB
     account-table-id: tblsqL1mCYsM7r5O
+
+# 日志配置
+logging:
+  level:
+    com.xhs: DEBUG
+    org.springframework.scheduling: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

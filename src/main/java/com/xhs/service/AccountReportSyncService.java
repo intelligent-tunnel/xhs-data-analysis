@@ -3,6 +3,7 @@ package com.xhs.service;
 import com.xhs.config.FeishuConfig;
 import com.xhs.config.XhsConfig;
 import com.xhs.model.DateValue;
+import com.xhs.model.TokenInfo;
 import com.xhs.util.FeishuBitableUtil;
 import com.xhs.util.FeishuUtil;
 import lombok.RequiredArgsConstructor;
@@ -53,21 +54,29 @@ public class AccountReportSyncService {
     public void syncAllAccounts() {
         log.info("===== 开始同步账号粒度报表数据到飞书 =====");
         String today = LocalDate.now(ZoneId.of("Asia/Shanghai")).format(DATE_FMT);
+        log.info("当前同步日期: {}, 配置的账号数量: {}", today, xhsConfig.getAccounts().size());
 
         for (XhsConfig.AccountConfig account : xhsConfig.getAccounts()) {
+            log.debug("检查账号: name={}, appId={}", account.getName(), account.getAppId());
+
             if (account.getAppId() == null || account.getAppId() == 0) {
+                log.warn("账号 {} appId 无效，跳过", account.getName());
                 continue;
             }
-            if (tokenService.getToken(account.getAppId()) == null) {
+
+            TokenInfo token = tokenService.getToken(account.getAppId());
+            if (token == null) {
                 log.warn("账号 {} (appId={}) 未授权，跳过", account.getName(), account.getAppId());
                 continue;
             }
+            log.debug("账号 {} token 存在, advertiserId={}", account.getName(), token.getAdvertiserId());
 
             List<Long> advertiserIds = account.getAdvertiserIds();
             if (advertiserIds == null || advertiserIds.isEmpty()) {
                 log.warn("账号 {} (appId={}) 未配置 advertiser-ids，跳过", account.getName(), account.getAppId());
                 continue;
             }
+            log.debug("账号 {} 配置了 {} 个广告主", account.getName(), advertiserIds.size());
 
             try {
                 syncOneAccount(account, today);
